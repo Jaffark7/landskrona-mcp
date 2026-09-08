@@ -42,18 +42,52 @@ export function selectTemplate(type) {
 }
 export function listTemplates() { return catalog.map(({id,name,suggested_sections}) => ({id,name,suggested_sections,default:id==='skola'})); }
 export const escapeXml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
-function paragraph(template, kind, content) {
-  const escaped = escapeXml(content).replace(/\n/g,'</w:t><w:br/><w:t xml:space="preserve">');
-  return template.prototypes[kind].replace('__TEXT__', () => escaped);
+const HYPERLINK_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink';
+// Markdownlänk [text](adress) eller en naken adress. Endast http och https blir klickbara,
+// så att javascript: och liknande scheman aldrig kan hamna i ett dokument.
+const LINK_PATTERN = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)/g;
+const breaks = value => escapeXml(value).replace(/\n/g,'</w:t><w:br/><w:t xml:space="preserve">');
+// Länkarna samlas under renderingen och skrivs in i document.xml.rels efteråt. En w:hyperlink
+// är bara giltig om relationen finns i paketet, så de två stegen hör ihop.
+function linkRun(template, links, label, url) {
+  const id = 'rIdMcp' + (links.length + 1);
+  links.push({ id, url });
+  const style = template.link_style ? '<w:rPr><w:rStyle w:val="' + template.link_style + '"/></w:rPr>' : '';
+  return '</w:t></w:r><w:hyperlink xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="'
+    + id + '"><w:r>' + style + '<w:t xml:space="preserve">' + escapeXml(label)
+    + '</w:t></w:r></w:hyperlink><w:r><w:t xml:space="preserve">';
 }
-function bodyText(template, textValue) {
+function inline(template, content, links) {
+  if (!links) return breaks(content);
+  let out = '', last = 0, match;
+  LINK_PATTERN.lastIndex = 0;
+  while ((match = LINK_PATTERN.exec(content))) {
+    const [full, label, href, bare] = match;
+    out += breaks(content.slice(last, match.index));
+    out += linkRun(template, links, label || bare, href || bare);
+    last = match.index + full.length;
+  }
+  return out + breaks(content.slice(last));
+}
+function paragraph(template, kind, content, links) {
+  return template.prototypes[kind].replace('__TEXT__', () => inline(template, content, links));
+}
+// Punktlista bär sin numrering i stildefinitionen, så det räcker att sätta styckeformatet.
+// Mallar utan formatet behåller tecknet, annars försvinner punkten helt.
+function bullet(template, content, links) {
+  if (!template.bullet_style) return paragraph(template, 'paragraph', '• ' + content, links);
+  return template.prototypes.paragraph
+    .replace('<w:r>', '<w:pPr><w:pStyle w:val="' + template.bullet_style + '"/></w:pPr><w:r>')
+    .replace('__TEXT__', () => inline(template, content, links));
+}
+function bodyText(template, textValue, links) {
   const lines = textValue.replace(/\r\n?/g,'\n').split('\n');
   let buffer=[]; const out=[];
-  const flush=()=>{ if(buffer.length) {out.push(paragraph(template,'paragraph',buffer.join('\n'))); buffer=[];} };
+  const flush=()=>{ if(buffer.length) {out.push(paragraph(template,'paragraph',buffer.join('\n'),links)); buffer=[];} };
   for(const line of lines) {
     const heading=line.match(/^#{1,6}\s+(.+)$/);
-    if(heading) { flush(); out.push(paragraph(template,'heading',heading[1])); }
-    else if(/^\s*[-*]\s+/.test(line)) {flush(); out.push(paragraph(template,'paragraph','• '+line.replace(/^\s*[-*]\s+/,'')));}
+    if(heading) { flush(); out.push(paragraph(template,'heading',heading[1],links)); }
+    else if(/^\s*[-*]\s+/.test(line)) {flush(); out.push(bullet(template,line.replace(/^\s*[-*]\s+/,''),links));}
     else if(!line.trim()) flush();
     else buffer.push(line);
   }
@@ -66,16 +100,23 @@ export function generateReport(input) {
   if(fallback) warnings.push('Rapporttypen saknas eller matchar ingen mall. Standardmallen Skola används med den angivna titeln.');
   const missing=['report_date','case_number','inspector','recipient'].filter(k=>!data[k]);
   if(missing.length) warnings.push(`Följande uppgifter saknas och lämnas tomma: ${missing.join(', ')}.`);
+  const links=[];
   let xml=(data.metadata || []).map(m=>paragraph(template,'metadata',`${m.label}: ${m.value}`)).join('');
   if(data.food_summary && template.id!=='livsmedel') warnings.push('food_summary ignorerades: fältet är tomt och rapporttypen är inte livsmedel.');
   if(data.food_summary && template.id==='livsmedel') {
     xml+=template.prototypes.food_summary.replace(/__PASSED__|__FOLLOWUP__|__DEVIATIONS__/g,slot=>escapeXml(data.food_summary[{__PASSED__:'passed',__FOLLOWUP__:'follow_up',__DEVIATIONS__:'deviations'}[slot]]).replace(/\n/g,'</w:t><w:br/><w:t xml:space="preserve">'));
   }
-  if(data.sections) xml+=data.sections.map(s=>(s.heading?paragraph(template,'heading',s.heading):'')+bodyText(template,s.text)).join('');
-  else xml+=bodyText(template,data.report_text);
+  if(data.sections) xml+=data.sections.map(s=>(s.heading?paragraph(template,'heading',s.heading,links):'')+bodyText(template,s.text,links)).join('');
+  else xml+=bodyText(template,data.report_text,links);
   const source=readFileSync(new URL(`../templates/${template.file}`,import.meta.url));
   const doc=new Docxtemplater(new PizZip(source),{paragraphLoop:true,linebreaks:true,nullGetter:()=>'',errorLogging:false});
   doc.render({title:data.title,report_date:data.report_date||'',case_number:data.case_number||'',inspector:data.inspector||'',recipient:data.recipient||'',report_body:xml});
+  if(links.length) {
+    const relsPath='word/_rels/document.xml.rels';
+    const zip=doc.getZip();
+    const added=links.map(l=>`<Relationship Id="${l.id}" Type="${HYPERLINK_REL}" Target="${escapeXml(l.url)}" TargetMode="External"/>`).join('');
+    zip.file(relsPath, zip.file(relsPath).asText().replace('</Relationships>', added+'</Relationships>'));
+  }
   const buffer=doc.getZip().generate({type:'nodebuffer',compression:'DEFLATE'});
   const filename=(normalize(data.title).replace(/ /g,'-').slice(0,100)||'inspektionsrapport')+'.docx';
   return {buffer,filename,template_id:template.id,fallback_used:fallback,warnings};

@@ -194,3 +194,26 @@ test('empty food_summary is ignored instead of rejected for non-food templates',
   const tomMat=generateReport({...fixture,report_type:'livsmedel',food_summary:tom});
   assert.equal(tomMat.template_id,'livsmedel');
 });
+test('bullets use the Word list style and links become real hyperlinks',()=>{
+  const r=generateReport({...fixture,report_type:'avfall',
+    report_text:'# Anmärkningar\n- Första punkten\n- Andra punkten\n\nEnligt [2 kap. 3 § miljöbalken](https://www.riksdagen.se/x) gäller detta. Se även https://www.riksdagen.se/y för mer.'});
+  const zip=new PizZip(r.buffer);
+  const doc=zip.file('word/document.xml').asText();
+  const rels=zip.file('word/_rels/document.xml.rels').asText();
+  assert.ok(doc.includes('w:val="Punktlista"'),'punkter ska anvanda Punktlista');
+  assert.ok(!/•/.test(doc),'inget litteralt bullet-tecken kvar');
+  assert.equal((doc.match(/<w:hyperlink/g)||[]).length,2,'tva lankar');
+  assert.ok(doc.includes('2 kap. 3 § miljöbalken'),'lanktexten ska synas');
+  assert.ok(!doc.includes('](https'),'markdown-syntaxen ska inte lacka ut');
+  assert.ok(!doc.includes('>https://www.riksdagen.se/x<'),'URL:en ska inte visas som text');
+  assert.ok(rels.includes('TargetMode="External"'));
+  assert.ok(rels.includes('https://www.riksdagen.se/x'));
+  assert.ok(rels.includes('https://www.riksdagen.se/y'));
+  // livsmedelsmallen saknar Punktlista och behaller tecknet
+  const mat=generateReport({...fixture,report_type:'livsmedel',report_text:'- En punkt'});
+  assert.ok(new PizZip(mat.buffer).file('word/document.xml').asText().includes('•'));
+  // farliga protokoll blir aldrig lankar
+  const ond=generateReport({...fixture,report_type:'avfall',report_text:'Se [klick](javascript:alert(1)) here'});
+  const ondDoc=new PizZip(ond.buffer).file('word/document.xml').asText();
+  assert.ok(!ondDoc.includes('<w:hyperlink'),'javascript: ska inte bli lank');
+});
