@@ -10,10 +10,21 @@ app.disable('x-powered-by');
 app.use((req,res,next)=>{res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});next();});
 app.get('/',(req,res)=>res.type('html').send('<!doctype html><html lang="sv"><meta charset="utf-8"><title>Landskrona rapportserver</title><body><h1>Landskrona rapportserver</h1><p>MCP-adress: <code>/api/mcp</code></p><p>Anslut med API-nyckel i Intric. Se projektets README för test och installation.</p></body></html>'));
 app.get('/api/health',(req,res)=>{try{config();res.json({status:'ok',templates:listTemplates().length});}catch(e){res.status(503).json({status:'configuration_required',variable:e.variable||null,message:e.variable?e.message:'Okänt konfigurationsfel.'});}});
+const CORS_HEADERS='authorization,content-type,mcp-session-id,mcp-protocol-version,last-event-id';
+app.use((req,res,next)=>{
+  const origin=req.headers.origin;
+  if(!origin)return next();
+  let allowed=[];
+  try{allowed=config().origins;}catch{}
+  if(allowed.includes(origin))res.set({'Access-Control-Allow-Origin':origin,'Vary':'Origin','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':CORS_HEADERS,'Access-Control-Expose-Headers':'mcp-session-id','Access-Control-Max-Age':'86400'});
+  else if(req.method==='OPTIONS')return res.status(403).json({error:'Origin är inte tillåten.'});
+  if(req.method==='OPTIONS')return res.status(204).end();
+  next();
+});
 function auth(req,res,next) {
   let cfg;
   try{cfg=config();}catch{return res.status(503).json({error:'Serverkonfiguration saknas. Kontrollera miljövariablerna.'});}
-  if(req.headers.origin && req.headers.origin!==cfg.base) return res.status(403).json({error:'Origin är inte tillåten.'});
+  if(req.headers.origin && !cfg.origins.includes(req.headers.origin)) return res.status(403).json({error:'Origin är inte tillåten.'});
   const header=req.headers.authorization || '';
   if(!header.startsWith('Bearer ')||!equalSecret(header.slice(7),cfg.key))return res.status(401).set('WWW-Authenticate','Bearer').json({error:'Ogiltig API-nyckel.'});
   next();

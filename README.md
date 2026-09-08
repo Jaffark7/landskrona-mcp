@@ -19,6 +19,7 @@ MCP-server för Intric. Tar emot en färdig rapport, fyller en bearbetad Word-ma
 | `PUBLIC_BASE_URL` | `https://DITT-PROJEKT.vercel.app`, utan sökväg |
 | `STORAGE_DRIVER` | `blob` |
 | `BLOB_READ_WRITE_TOKEN` | Token till det privata Blob-lagret |
+| `ALLOWED_ORIGINS` | `https://landskrona.intric.ai` — Intrics adress, kommaseparerad vid flera |
 | `DOWNLOAD_TTL_SECONDS` | `3600` för en timme, tillåtet 60–86400 |
 
 Vercels eventuella Deployment Protection måste tillåta Intric och användaren att nå denna deployment. Använd produktionsadressen vid första testet. Serverns egen API-nyckel skyddar rapportgenereringen.
@@ -33,6 +34,8 @@ Som administratör med MCP-modulen aktiverad:
 4. Validera anslutningen och uppdatera serverns verktyg med **Refresh capabilities**.
 5. Aktivera servern under Tools och lägg till den hos assistenten.
 6. Lägg instruktionen från `INTRIC-INSTRUKTION.md` i assistentens instruktioner.
+
+Serveradressen i Intric är `PUBLIC_BASE_URL` + `/api/mcp`, alltså `https://DITT-PROJEKT.vercel.app/api/mcp`. Roten `/` är bara en informationssida. Eftersom Intric anropar från webbläsaren måste dess origin anges i `ALLOWED_ORIGINS`, annars svarar servern 403 på anropet.
 
 Transporten är **Streamable HTTP**, utan bestående server-session. Verktygen heter `list_templates` och `create_inspection_report`. Det finns ingen separat `/sse`-endpoint.
 

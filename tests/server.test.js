@@ -151,3 +151,32 @@ test('health names the failing variable without exposing its value',async()=>{
   }
   assert.ok(!JSON.stringify(await (await fetch(`${base}/api/health`)).json()).includes(secret));
 });
+test('configured Intric origin passes CORS while unknown origins stay blocked',async()=>{
+  const intric='https://landskrona.intric.ai';
+  process.env.ALLOWED_ORIGINS=intric;
+  const pre=await fetch(`${base}/api/mcp`,{method:'OPTIONS',headers:{Origin:intric,'Access-Control-Request-Method':'POST'}});
+  assert.equal(pre.status,204);
+  assert.equal(pre.headers.get('access-control-allow-origin'),intric);
+  assert.match(pre.headers.get('access-control-allow-headers')||'',/authorization/i);
+  assert.equal(pre.headers.get('vary'),'Origin');
+  const ok=await fetch(`${base}/api/templates`,{headers:{...headers(),Origin:intric}});
+  assert.equal(ok.status,200);
+  assert.equal(ok.headers.get('access-control-allow-origin'),intric);
+  const evil=await fetch(`${base}/api/templates`,{headers:{...headers(),Origin:'https://evil.example'}});
+  assert.equal(evil.status,403);
+  assert.equal(evil.headers.get('access-control-allow-origin'),null);
+  assert.equal((await fetch(`${base}/api/mcp`,{method:'OPTIONS',headers:{Origin:'https://evil.example','Access-Control-Request-Method':'POST'}})).status,403);
+  delete process.env.ALLOWED_ORIGINS;
+  assert.equal((await fetch(`${base}/api/templates`,{headers:{...headers(),Origin:base}})).status,200);
+  assert.equal((await fetch(`${base}/api/templates`,{headers:{...headers(),Origin:intric}})).status,403);
+});
+test('health reports a malformed ALLOWED_ORIGINS',async()=>{
+  for(const bad of ['inte-en-adress','https://landskrona.intric.ai/admin']){
+    process.env.ALLOWED_ORIGINS=bad;
+    const res=await fetch(`${base}/api/health`);const body=await res.json();
+    delete process.env.ALLOWED_ORIGINS;
+    assert.equal(res.status,503);
+    assert.equal(body.variable,'ALLOWED_ORIGINS');
+  }
+  assert.equal((await fetch(`${base}/api/health`)).status,200);
+});

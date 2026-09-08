@@ -17,13 +17,23 @@ export function config() {
   try{base=new URL(process.env.PUBLIC_BASE_URL || '');}catch{fail('PUBLIC_BASE_URL','PUBLIC_BASE_URL saknas eller är ingen giltig adress.');}
   if(base.username || base.password || base.search || base.hash || base.pathname!=='/') fail('PUBLIC_BASE_URL','PUBLIC_BASE_URL måste vara en origin utan sökväg.');
   if(base.protocol!=='https:' && !(base.protocol==='http:' && ['localhost','127.0.0.1'].includes(base.hostname) && !process.env.VERCEL)) fail('PUBLIC_BASE_URL','PUBLIC_BASE_URL måste använda HTTPS på Vercel.');
+  // Intric anropar från webbläsaren, så dess origin måste listas explicit.
+  // Kontrollen finns kvar som skydd mot DNS rebinding; den blir konfigurerbar, inte borttagen.
+  const origins=[base.origin];
+  for(const value of (process.env.ALLOWED_ORIGINS||'').split(',').map(part=>part.trim()).filter(Boolean)){
+    let extra;
+    try{extra=new URL(value);}catch{fail('ALLOWED_ORIGINS','ALLOWED_ORIGINS måste vara kommaseparerade adresser, till exempel https://landskrona.intric.ai.');}
+    if(extra.username||extra.password||extra.search||extra.hash||extra.pathname!=='/') fail('ALLOWED_ORIGINS','ALLOWED_ORIGINS får bara innehålla origin, utan sökväg.');
+    if(extra.protocol!=='https:' && !(extra.protocol==='http:' && ['localhost','127.0.0.1'].includes(extra.hostname) && !process.env.VERCEL)) fail('ALLOWED_ORIGINS','ALLOWED_ORIGINS måste använda HTTPS.');
+    if(!origins.includes(extra.origin)) origins.push(extra.origin);
+  }
   const driver=process.env.STORAGE_DRIVER || 'blob';
   if(!['blob','local'].includes(driver)) fail('STORAGE_DRIVER','STORAGE_DRIVER måste vara blob eller local.');
   if(process.env.VERCEL && driver==='local') fail('STORAGE_DRIVER','Vercel kräver STORAGE_DRIVER=blob.');
   if(driver==='blob' && !process.env.BLOB_READ_WRITE_TOKEN) fail('BLOB_READ_WRITE_TOKEN','BLOB_READ_WRITE_TOKEN saknas. Koppla ett privat Blob-lager.');
   const ttl=Number(process.env.DOWNLOAD_TTL_SECONDS||3600);
   if(!Number.isInteger(ttl)||ttl<60||ttl>86400) fail('DOWNLOAD_TTL_SECONDS','DOWNLOAD_TTL_SECONDS måste vara ett heltal mellan 60 och 86400.');
-  return {key,secret,base:base.origin,driver,ttl};
+  return {key,secret,base:base.origin,origins,driver,ttl};
 }
 export function equalSecret(a,b) {
   const aa=Buffer.from(a),bb=Buffer.from(b);
