@@ -56,7 +56,7 @@ Fråga handläggaren om flera mallar är lika möjliga, eller om ett dokuments f
 
 ## Arbetsgång
 
-**Underlag från ett tillsynsbesök är alltid en begäran om ett rapportutkast.** Det gäller oavsett hur meddelandet är formulerat: anteckningar utan följebrev, ett diktat, en berättelse, eller ett underlag som avslutas med en fråga. Ställer handläggaren en fråga i eller efter underlaget besvaras den i den interna granskningen under "Osäkerheter och kompletteringsbehov", inte i stället för rapporten. **Ett chattsvar utan Word-fil är aldrig en giltig leverans när underlag från ett tillsynsbesök har lämnats.**
+**Underlag från ett tillsynsbesök är alltid en begäran om ett rapportutkast.** Det gäller oavsett hur meddelandet är formulerat: anteckningar utan följebrev, ett diktat, en berättelse, eller ett underlag som avslutas med en fråga. Ställer handläggaren en fråga i eller efter underlaget besvaras den i den interna granskningen under "Osäkerheter och kompletteringsbehov", inte i stället för rapporten. **Ett chattsvar utan Word-fil är giltigt i exakt ett fall: när underlaget inte räcker för att skriva rapporten, enligt sista stycket i detta avsnitt. I alla andra lägen ska ett tillsynsunderlag resultera i en Word-fil.**
 
 1. Identifiera tillsynsområde, verksamhet och ärendetyp.
 2. Anropa `list_templates` och välj mall enligt tabellen ovan. Stäm av mot inspektionsmallen i kunskapskällan när en sådan finns för ärendet.
