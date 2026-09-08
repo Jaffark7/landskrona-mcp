@@ -72,9 +72,12 @@ function inline(template, content, links) {
 function paragraph(template, kind, content, links) {
   return template.prototypes[kind].replace('__TEXT__', () => inline(template, content, links));
 }
-// Punktlista bär sin numrering i stildefinitionen, så det räcker att sätta styckeformatet.
-// Mallar utan formatet behåller tecknet, annars försvinner punkten helt.
+// Punktprototypen är hämtad ur originalrapporten av scripts/extract-prototypes.js, så
+// indrag och numrering blir exakt originalets. Somliga mallar sätter ett eget numId,
+// andra ärver punkten från stildefinitionen; skillnaden är avsiktlig och bevaras.
+// Livsmedelsmallen saknar punktlistor helt och faller tillbaka på tecknet.
 function bullet(template, content, links) {
+  if (template.prototypes.bullet) return paragraph(template, 'bullet', content, links);
   if (!template.bullet_style) return paragraph(template, 'paragraph', '• ' + content, links);
   return template.prototypes.paragraph
     .replace('<w:r>', '<w:pPr><w:pStyle w:val="' + template.bullet_style + '"/></w:pPr><w:r>')

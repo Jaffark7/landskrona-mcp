@@ -217,3 +217,22 @@ test('bullets use the Word list style and links become real hyperlinks',()=>{
   const ondDoc=new PizZip(ond.buffer).file('word/document.xml').asText();
   assert.ok(!ondDoc.includes('<w:hyperlink'),'javascript: ska inte bli lank');
 });
+test('generated document matches the original layout and keeps the vector logo',()=>{
+  const r=generateReport({...fixture,report_type:'avfall',
+    report_text:'# Anmärkningar\n- Punkt ett\n- Punkt två'});
+  const zip=new PizZip(r.buffer);
+  const doc=zip.file('word/document.xml').asText();
+  const paras=doc.slice(doc.indexOf('<w:body>')).split(/(?=<w:p[ >])/).filter(b=>b.startsWith('<w:p'));
+  const numId=b=>(b.match(/<w:numId w:val="(\d+)"\/>/)||[])[1];
+  // Originalets varden: rubriker automatnumreras med numId 10, punkter anvander numId 13.
+  const rubriker=paras.filter(b=>/w:pStyle w:val="Rubrik1"/.test(b));
+  const punkter=paras.filter(b=>/w:pStyle w:val="Punktlista"/.test(b));
+  assert.ok(rubriker.length>0 && punkter.length===2);
+  rubriker.forEach(b=>assert.equal(numId(b),'10','rubriker ska numreras som i originalet'));
+  punkter.forEach(b=>assert.equal(numId(b),'13','punkter ska ha originalets indrag'));
+  // Logotypen ska vara vektor, inte bara bitmappen.
+  assert.ok(zip.file('word/media/image2.svg'),'SVG-logotypen ska folja med');
+  assert.ok(doc.includes('svgBlip'),'blip ska peka pa vektorversionen');
+  assert.ok(zip.file('[Content_Types].xml').asText().includes('Extension="svg"'));
+  assert.equal(zip.file('word/media/image1.png').asNodeBuffer().length,12456,'PNG-reserven ska vara orord');
+});
