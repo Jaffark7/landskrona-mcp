@@ -282,3 +282,19 @@ test('MCP result carries a separate link for the photo appendix',async()=>{
   const rapport=new PizZip(Buffer.from(await (await fetch(d.download_url)).arrayBuffer()));
   assert.equal(Object.keys(rapport.files).filter(f=>/mcpbild/.test(f)).length,0);
 });
+test('markdown bold becomes real bold and never leaks asterisks',()=>{
+  const r=generateReport({...fixture,report_type:'avfall',
+    report_text:'# Anmärkningar\n- **Utomhus, baksidan:** Tre behållare utan invallning.\n\nText med **fet del** mitt i och en [länk](https://www.riksdagen.se/x).'});
+  const doc=new PizZip(r.buffer).file('word/document.xml').asText();
+  const txt=(doc.match(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)||[]).map(t=>t.replace(/<[^>]+>/g,'')).join('');
+  assert.equal((txt.match(/\*\*/g)||[]).length,0,'inga asterisker far synas');
+  assert.ok(txt.includes('Utomhus, baksidan:'),'texten ska finnas kvar');
+  assert.ok(txt.includes('fet del'));
+  assert.equal((doc.match(/<w:rPr><w:b\/><w:bCs\/><\/w:rPr>/g)||[]).length,2,'tva fetstilta partier, brevhuvudets egen fetstil raknas inte');
+  assert.equal((doc.match(/<w:hyperlink/g)||[]).length,1,'lanken ska fortfarande fungera');
+  assert.ok(!txt.includes('https://www.riksdagen.se/x'),'markdownlankens adress ska vara dold');
+  // Ensamma asterisker ska lamnas i fred, inte tolkas som formatering.
+  const kvar=generateReport({...fixture,report_type:'avfall',report_text:'Mata 5 * 3 meter och ** kvar.'});
+  const kvarTxt=new PizZip(kvar.buffer).file('word/document.xml').asText();
+  assert.ok(kvarTxt.includes('5 * 3 meter'));
+});

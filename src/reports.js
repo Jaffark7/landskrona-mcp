@@ -12,7 +12,7 @@ const section = z.object({ heading: text(200).optional(), text: text(40000).min(
 export const reportShape = {
   report_type: text(150).optional().describe('Mallens id från list_templates. Saknad eller okänd typ använder standardmallen skola.'),
   title: text(250).min(1).describe('Den nya rapportens titel. Ersätter alltid mallens titel.'),
-  report_text: text(120000).optional().describe('Hela färdiga rapporttexten, utan brevhuvud och titel. Enkel Markdown med # rubriker och - listor stöds. Skicka antingen report_text eller sections.'),
+  report_text: text(120000).optional().describe('Hela färdiga rapporttexten, utan brevhuvud och titel. Enkel Markdown: # rubrik, - punktlista, **fet stil** och [text](adress) som blir klickbar länk. Skicka antingen report_text eller sections.'),
   sections: z.array(section).min(1).max(60).optional().describe('Ordnade avsnitt med heading och text. Alternativ till report_text.'),
   report_date: text(40).optional(),
   case_number: text(100).optional(),
@@ -49,9 +49,11 @@ export function selectTemplate(type) {
 export function listTemplates() { return catalog.map(({id,name,suggested_sections}) => ({id,name,suggested_sections,default:id==='skola'})); }
 export const escapeXml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 const HYPERLINK_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink';
-// Markdownlänk [text](adress) eller en naken adress. Endast http och https blir klickbara,
-// så att javascript: och liknande scheman aldrig kan hamna i ett dokument.
-const LINK_PATTERN = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)/g;
+// Markdownlänk [text](adress), en naken adress, eller **fetstil**. Endast http och https
+// blir klickbara, så att javascript: och liknande scheman aldrig kan hamna i ett dokument.
+// Fetstil måste hanteras här: en språkmodell skriver markdown av gammal vana, och utan
+// stöd hamnar asteriskerna som synlig text i myndighetsrapporten.
+const INLINE_PATTERN = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+)|\*\*(?!\s)([^*\n]+?)\*\*/g;
 const breaks = value => escapeXml(value).replace(/\n/g,'</w:t><w:br/><w:t xml:space="preserve">');
 // Länkarna samlas under renderingen och skrivs in i document.xml.rels efteråt. En w:hyperlink
 // är bara giltig om relationen finns i paketet, så de två stegen hör ihop.
@@ -63,14 +65,16 @@ function linkRun(template, links, label, url) {
     + id + '"><w:r>' + style + '<w:t xml:space="preserve">' + escapeXml(label)
     + '</w:t></w:r></w:hyperlink><w:r><w:t xml:space="preserve">';
 }
+const boldRun = value => '</w:t></w:r><w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">'
+  + breaks(value) + '</w:t></w:r><w:r><w:t xml:space="preserve">';
 function inline(template, content, links) {
   if (!links) return breaks(content);
   let out = '', last = 0, match;
-  LINK_PATTERN.lastIndex = 0;
-  while ((match = LINK_PATTERN.exec(content))) {
-    const [full, label, href, bare] = match;
+  INLINE_PATTERN.lastIndex = 0;
+  while ((match = INLINE_PATTERN.exec(content))) {
+    const [full, label, href, bare, bold] = match;
     out += breaks(content.slice(last, match.index));
-    out += linkRun(template, links, label || bare, href || bare);
+    out += bold !== undefined ? boldRun(bold) : linkRun(template, links, label || bare, href || bare);
     last = match.index + full.length;
   }
   return out + breaks(content.slice(last));

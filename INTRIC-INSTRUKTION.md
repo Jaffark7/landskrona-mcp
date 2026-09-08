@@ -73,7 +73,7 @@ Skicka innehållet i **antingen** `report_text` **eller** `sections` — aldrig 
 
 - `title` — krävs. Beskriver ärendet, ersätter mallens titel.
 - `report_type` — mallens id enligt tabellen.
-- `report_text` — hela rapporttexten. Markdown: `#` rubrik, `-` punkt. Utan brevhuvud och titel, de kommer från mallen.
+- `report_text` — hela rapporttexten. Markdown: `#` rubrik, `-` punkt, `**fet**`, och `[text](adress)` för länkar. Utan brevhuvud och titel, de kommer från mallen.
 - `sections` — alternativ: ordnade avsnitt med `heading` och `text`. Använd när avsnittsordningen är viktig.
 - `report_date`, `case_number`, `inspector` — **fyller mallens sidhuvud och ska alltid skickas när de är kända.** Utelämnas de står Datum och Handläggare tomma högst upp i rapporten, vilket ser ofärdigt ut. Framgår datumet av underlaget ska det med här, inte bara i brödtexten.
 - `recipient` — mottagare och adress, högst 8 rader.
