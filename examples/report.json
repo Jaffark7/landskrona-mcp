@@ -1,0 +1,17 @@
+{
+  "report_type": "skola",
+  "title": "Inspektionsrapport för Exempelskolan",
+  "report_date": "2026-09-07",
+  "case_number": "TEST-2026-001",
+  "inspector": "Exempelhandläggare",
+  "recipient": "Exempelskolan\nTestgatan 1\n261 00 Landskrona",
+  "metadata": [
+    { "label": "Verksamhet", "value": "Exempelskolan" },
+    { "label": "Inspektionsdatum", "value": "2026-09-07" }
+  ],
+  "sections": [
+    { "heading": "Allmänt om tillsynen", "text": "Detta är en fiktiv testrapport för att kontrollera dokumentgenereringen." },
+    { "heading": "Noteringar", "text": "Lokalerna besöktes enligt det fiktiva testunderlaget.\n\nTexten ska visas med mallens befintliga brödtextstil." },
+    { "heading": "Uppföljning", "text": "Inga verkliga beslut eller bedömningar ingår i denna testrapport." }
+  ]
+}
