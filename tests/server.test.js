@@ -9,7 +9,7 @@ import { DOMParser } from '@xmldom/xmldom';
 import { posix } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import app from '../src/app.js';
+import app, { createReportResult } from '../src/app.js';
 import { generateReport, listTemplates, selectTemplate } from '../src/reports.js';
 import { config, signDownload, verifyDownload, cleanupReports } from '../src/storage.js';
 
@@ -235,4 +235,50 @@ test('generated document matches the original layout and keeps the vector logo',
   assert.ok(doc.includes('svgBlip'),'blip ska peka pa vektorversionen');
   assert.ok(zip.file('[Content_Types].xml').asText().includes('Extension="svg"'));
   assert.equal(zip.file('word/media/image1.png').asNodeBuffer().length,12456,'PNG-reserven ska vara orord');
+});
+test('photos become a separate appendix document with embedded images',()=>{
+  // 2x3 PNG, tillrackligt for att matten ska kunna lasas ur filhuvudet.
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAAG7fl8AAAAEklEQVR4nGP8//8/AzbAhFVkyAIAcvcD+3PNOhoAAAAASUVORK5CYII=','base64');
+  const r=generateReport({...fixture,report_type:'avfall',report_text:'# Anmärkningar\n- En punkt',
+    images:[{data:png.toString('base64'),caption:'IBC-behållare utan invallning.'},
+            {data:'data:image/png;base64,'+png.toString('base64')},
+            {data:'inte-en-bild'}]});
+  assert.equal(r.image_count,2,'tva giltiga foton');
+  assert.ok(r.warnings.some(w=>/Bild 3/.test(w)),'det trasiga fotot ska redovisas');
+  // Rapporten sjalv ska aldrig innehalla foton.
+  const rapport=new PizZip(r.buffer);
+  assert.equal(Object.keys(rapport.files).filter(f=>/^word\/media\/mcpbild/.test(f)).length,0);
+  assert.ok(r.appendix,'fotobilaga ska skapas');
+  assert.match(r.appendix.filename,/^fotobilaga-/);
+  const bilaga=new PizZip(r.appendix.buffer);
+  const doc=bilaga.file('word/document.xml').asText();
+  assert.equal((doc.match(/rIdMcpBild/g)||[]).length,2,'tva av vara bilder, mallens logotyp raknas inte');
+  assert.ok(doc.includes('Bild 1. IBC-behållare utan invallning.'));
+  assert.ok(bilaga.file('word/media/mcpbild1.png'),'bildfilen ska ligga i paketet');
+  assert.ok(bilaga.file('word/_rels/document.xml.rels').asText().includes('rIdMcpBild1'));
+  assert.ok(bilaga.file('[Content_Types].xml').asText().includes('Extension="png"'));
+  // Matten ska bevara sidforhallandet 2:3.
+  const block=doc.split('<w:drawing>').find(b=>b.includes('rIdMcpBild1'));
+  const ext=block.match(/<wp:extent cx="(\d+)" cy="(\d+)"\/>/);
+  assert.ok(Math.abs((Number(ext[2])/Number(ext[1]))-1.5)<0.01,'sidforhallandet ska bevaras');
+});
+test('MCP result carries a separate link for the photo appendix',async()=>{
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAAG7fl8AAAAEklEQVR4nGP8//8/AzbAhFVkyAIAcvcD+3PNOhoAAAAASUVORK5CYII=','base64');
+  const result=await createReportResult({...fixture,report_type:'avfall',report_text:'# Anmärkningar\n- En punkt',
+    images:[{data:png.toString('base64'),caption:'Behållare utan invallning.'}]});
+  assert.ok(!result.isError,'anropet ska lyckas');
+  const d=result.structuredContent;
+  assert.equal(d.image_count,1);
+  assert.ok(d.download_url && d.appendix_download_url,'bada lankarna ska finnas');
+  assert.notEqual(d.download_url,d.appendix_download_url,'lankarna ska peka pa olika filer');
+  assert.match(d.appendix_filename,/^fotobilaga-/);
+  assert.equal(result.content.filter(c=>c.type==='resource_link').length,2);
+  // Bilagan ska ga att ladda ner och innehalla bilden.
+  const res=await fetch(d.appendix_download_url);
+  assert.equal(res.status,200);
+  const zip=new PizZip(Buffer.from(await res.arrayBuffer()));
+  assert.ok(zip.file('word/media/mcpbild1.png'));
+  // Rapporten sjalv ska inte ha nagot foto.
+  const rapport=new PizZip(Buffer.from(await (await fetch(d.download_url)).arrayBuffer()));
+  assert.equal(Object.keys(rapport.files).filter(f=>/mcpbild/.test(f)).length,0);
 });

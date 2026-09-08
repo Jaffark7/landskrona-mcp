@@ -34,8 +34,14 @@ const errorResult=(message)=>({isError:true,content:[{type:'text',text:message}]
 export async function createReportResult(input) {
   try {
     const report=generateReport(input); const link=await saveReport(report);
-    const details={...link,filename:report.filename,template_id:report.template_id,fallback_used:report.fallback_used,warnings:report.warnings};
-    return {content:[{type:'text',text:JSON.stringify(details)},{type:'resource_link',uri:link.download_url,name:report.filename,mimeType:MIME,description:'Färdig Word-rapport. Visa download_url som klickbar nedladdningslänk för användaren.'}],structuredContent:details};
+    // Fotobilagan ar ett eget dokument med egen lank, eftersom rapporten klistras in i Ecos.
+    const appendix=report.appendix?await saveReport(report.appendix):null;
+    const details={...link,filename:report.filename,template_id:report.template_id,fallback_used:report.fallback_used,warnings:report.warnings,
+      image_count:report.image_count,
+      appendix_download_url:appendix?.download_url,appendix_filename:report.appendix?.filename};
+    const resources=[{type:'resource_link',uri:link.download_url,name:report.filename,mimeType:MIME,description:'Färdig Word-rapport. Visa download_url som klickbar nedladdningslänk för användaren.'}];
+    if(appendix) resources.push({type:'resource_link',uri:appendix.download_url,name:report.appendix.filename,mimeType:MIME,description:'Fotobilaga som eget dokument. Visa appendix_download_url som en separat klickbar länk.'});
+    return {content:[{type:'text',text:JSON.stringify(details)},...resources],structuredContent:details};
   } catch(e) {
     if(e instanceof ZodError)return errorResult(e.issues.map(i=>`${i.path.join('.')||'rapport'}: ${i.message}`).join('\n'));
     // Never log report text, tokens, or template engine error objects.

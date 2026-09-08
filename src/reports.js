@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import { z } from 'zod';
+import { imageSize, fit, drawing, attach } from './images.js';
 
 const catalog = JSON.parse(readFileSync(new URL('../templates/catalog.json', import.meta.url), 'utf8'));
 export const MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -22,13 +23,18 @@ export const reportShape = {
     deviations: text(2000)
   }).strict().optional().describe('Endast livsmedel: text till originalmallens tabell med Kontrollerat utan avvikelser, Uppföljning av tidigare avvikelser och Avvikelser. Utelämna fältet helt för alla andra rapporttyper. Skicka endast verifierade uppgifter. Tom sträng lämnar respektive fält tomt i livsmedelsmallen.'),
   recipient: text(1200).optional().describe('Mottagare och eventuell adress, med radbrytningar. Högst 8 rader.'),
-  metadata: z.array(z.object({ label: text(80).min(1), value: text(800).min(1) }).strict()).max(20).optional().describe('Uppgifter under titeln, exempelvis Verksamhet, Org. nr, Fastighet, Inspektionsdatum och Närvarande.')
+  metadata: z.array(z.object({ label: text(80).min(1), value: text(800).min(1) }).strict()).max(20).optional().describe('Uppgifter under titeln, exempelvis Verksamhet, Org. nr, Fastighet, Inspektionsdatum och Närvarande.'),
+  images: z.array(z.object({
+    data: z.string().min(1).max(12000000).describe('Fotot som base64, med eller utan data:-prefix. PNG eller JPEG.'),
+    caption: text(600).optional().describe('Bildtext. Beskriv endast det som tydligt syns.')
+  }).strict()).max(20).optional().describe('Foton till fotobilagan, som levereras som ett eget dokument. Numreras Bild 1, Bild 2 i den ordning de skickas. Rapporten själv innehåller aldrig bilder.')
 };
 // Ett food_summary med enbart tomma stranger betyder "inte tillämpligt", inte ett fel.
 const foodFilled = f => Boolean(f) && Object.values(f).some(v => v && v.trim());
 export const reportSchema = z.object(reportShape).strict().superRefine((v, ctx) => {
   if (Boolean(v.report_text) === Boolean(v.sections?.length)) ctx.addIssue({code:'custom', message:'Skicka rapportinnehåll i exakt ett av report_text eller sections.'});
-  if (JSON.stringify(v).length > 150000) ctx.addIssue({code:'custom',message:'Rapporten är för stor. Högst 150 000 tecken totalt.'});
+  // Fotona mäts för sig. De är alltid större än texten och skulle annars ensamma spränga taket.
+  if (JSON.stringify({...v, images: undefined}).length > 150000) ctx.addIssue({code:'custom',message:'Rapporttexten är för stor. Högst 150 000 tecken utöver foton.'});
   if ((v.recipient?.split('\n').length || 0) > 8) ctx.addIssue({code:'custom',message:'Mottagarblocket får innehålla högst 8 rader.'});
   if (foodFilled(v.food_summary) && selectTemplate(v.report_type).template.id!=='livsmedel') ctx.addIssue({code:'custom',message:'food_summary innehåller uppgifter men rapporttypen är inte livsmedel. Ta bort fältet eller byt rapporttyp.'});
 });
@@ -111,16 +117,43 @@ export function generateReport(input) {
   }
   if(data.sections) xml+=data.sections.map(s=>(s.heading?paragraph(template,'heading',s.heading,links):'')+bodyText(template,s.text,links)).join('');
   else xml+=bodyText(template,data.report_text,links);
+  const slug=(value)=>(normalize(value).replace(/ /g,'-').slice(0,100)||'inspektionsrapport')+'.docx';
+  const buffer=render(template,data,xml,links,[]);
+  const photos=decodeImages(data.images,warnings);
+  const appendix=photos.length?{buffer:renderAppendix(template,data,photos),filename:slug('Fotobilaga '+data.title)}:null;
+  return {buffer,filename:slug(data.title),template_id:template.id,fallback_used:fallback,warnings,appendix,image_count:photos.length};
+}
+function render(template,data,bodyXml,links,photos) {
   const source=readFileSync(new URL(`../templates/${template.file}`,import.meta.url));
   const doc=new Docxtemplater(new PizZip(source),{paragraphLoop:true,linebreaks:true,nullGetter:()=>'',errorLogging:false});
-  doc.render({title:data.title,report_date:data.report_date||'',case_number:data.case_number||'',inspector:data.inspector||'',recipient:data.recipient||'',report_body:xml});
+  doc.render({title:data.title,report_date:data.report_date||'',case_number:data.case_number||'',inspector:data.inspector||'',recipient:data.recipient||'',report_body:bodyXml});
+  const zip=doc.getZip();
   if(links.length) {
     const relsPath='word/_rels/document.xml.rels';
-    const zip=doc.getZip();
     const added=links.map(l=>`<Relationship Id="${l.id}" Type="${HYPERLINK_REL}" Target="${escapeXml(l.url)}" TargetMode="External"/>`).join('');
     zip.file(relsPath, zip.file(relsPath).asText().replace('</Relationships>', added+'</Relationships>'));
   }
-  const buffer=doc.getZip().generate({type:'nodebuffer',compression:'DEFLATE'});
-  const filename=(normalize(data.title).replace(/ /g,'-').slice(0,100)||'inspektionsrapport')+'.docx';
-  return {buffer,filename,template_id:template.id,fallback_used:fallback,warnings};
+  attach(zip,photos);
+  return zip.generate({type:'nodebuffer',compression:'DEFLATE'});
+}
+// Ett trasigt foto far aldrig falla hela rapporten. Det utelamnas och redovisas som varning.
+function decodeImages(list,warnings) {
+  const photos=[];
+  for(const [index,item] of (list||[]).entries()) {
+    const raw=item.data.replace(/^data:[^;,]*;base64,/,'').replace(/\s+/g,'');
+    let buffer;
+    try { buffer=Buffer.from(raw,'base64'); } catch { buffer=null; }
+    const size=buffer&&buffer.length?imageSize(buffer):null;
+    if(!size) { warnings.push(`Bild ${index+1} kunde inte läsas och utelämnades. Endast PNG och JPEG stöds.`); continue; }
+    const number=photos.length+1;
+    photos.push({...size,buffer,caption:item.caption,number,
+      id:`mcpbild${number}`,relationId:`rIdMcpBild${number}`,...fit(size.width,size.height)});
+  }
+  return photos;
+}
+function renderAppendix(template,data,photos) {
+  const xml=paragraph(template,'heading','Fotobilaga')
+    +photos.map(p=>drawing(p.relationId,p.number,p.cx,p.cy,p.caption)
+      +paragraph(template,'paragraph',`Bild ${p.number}.${p.caption?' '+p.caption:''}`)).join('');
+  return render(template,{...data,title:'Fotobilaga '+data.title},xml,[],photos);
 }
