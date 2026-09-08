@@ -52,7 +52,9 @@ Write-Host "`nAnropar $url ..." -ForegroundColor Cyan
 try {
   $res = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $payload -UseBasicParsing
   Write-Host "HTTP $($res.StatusCode)" -ForegroundColor Green
-  $body = $res.Content | ConvertFrom-Json
+  # Windows PowerShell tolkar svaret som ANSI och gor a-ring och prickar oläsliga.
+  # Svaret ar UTF-8, sa det avkodas ur raa bytes i stallet.
+  $body = [System.Text.Encoding]::UTF8.GetString($res.RawContentStream.ToArray()) | ConvertFrom-Json
 
   if ($body.result.isError) {
     Write-Host "`nVERKTYGET RETURNERADE FEL:" -ForegroundColor Red
