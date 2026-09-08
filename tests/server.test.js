@@ -126,3 +126,28 @@ test('production configuration fails closed for ephemeral local storage and miss
   process.env.VERCEL='1';assert.throws(()=>config());delete process.env.VERCEL;
   process.env.MCP_API_KEY='';assert.throws(()=>config());process.env.MCP_API_KEY=key;
 });
+test('health names the failing variable without exposing its value',async()=>{
+  const ok=await fetch(`${base}/api/health`);
+  assert.equal(ok.status,200);
+  assert.deepEqual(await ok.json(),{status:'ok',templates:8});
+  const cases=[
+    ['MCP_API_KEY','','MCP_API_KEY'],
+    ['DOWNLOAD_SECRET','kort','DOWNLOAD_SECRET'],
+    ['PUBLIC_BASE_URL','','PUBLIC_BASE_URL'],
+    ['PUBLIC_BASE_URL','https://exempel.se/api','PUBLIC_BASE_URL'],
+    ['STORAGE_DRIVER','sqlite','STORAGE_DRIVER'],
+    ['DOWNLOAD_TTL_SECONDS','5','DOWNLOAD_TTL_SECONDS']
+  ];
+  for(const [name,bad,expected] of cases){
+    const previous=process.env[name];process.env[name]=bad;
+    const res=await fetch(`${base}/api/health`);
+    const body=await res.json();
+    process.env[name]=previous;
+    assert.equal(res.status,503,`${name} ska ge 503`);
+    assert.equal(body.status,'configuration_required');
+    assert.equal(body.variable,expected,`${name} ska namnges`);
+    assert.ok(body.message.length>0);
+    if(bad)assert.ok(!JSON.stringify(body).includes(bad),`${name}: värdet får inte läcka`);
+  }
+  assert.ok(!JSON.stringify(await (await fetch(`${base}/api/health`)).json()).includes(secret));
+});

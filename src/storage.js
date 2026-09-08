@@ -4,18 +4,25 @@ import { resolve } from 'node:path';
 import { put, get, list, del } from '@vercel/blob';
 import { MIME } from './reports.js';
 
+// Fel från config() bär variabelnamnet så /api/health kan peka ut rätt miljövariabel.
+// Meddelandena får aldrig innehålla värdet, bara namnet och kravet.
+const fail=(variable,message)=>{const error=new Error(message);error.variable=variable;throw error;};
 export function config() {
   const key=process.env.MCP_API_KEY;
   const secret=process.env.DOWNLOAD_SECRET;
-  if(!key || key.length<32 || !secret || secret.length<32 || key===secret) throw new Error('Ange två olika nycklar på minst 32 tecken: MCP_API_KEY och DOWNLOAD_SECRET.');
-  const base=new URL(process.env.PUBLIC_BASE_URL || '');
-  if(base.username || base.password || base.search || base.hash || base.pathname!=='/') throw new Error('PUBLIC_BASE_URL måste vara en origin utan sökväg.');
-  if(base.protocol!=='https:' && !(base.protocol==='http:' && ['localhost','127.0.0.1'].includes(base.hostname) && !process.env.VERCEL)) throw new Error('PUBLIC_BASE_URL måste använda HTTPS på Vercel.');
+  if(!key || key.length<32) fail('MCP_API_KEY','MCP_API_KEY måste vara minst 32 tecken.');
+  if(!secret || secret.length<32) fail('DOWNLOAD_SECRET','DOWNLOAD_SECRET måste vara minst 32 tecken.');
+  if(key===secret) fail('DOWNLOAD_SECRET','DOWNLOAD_SECRET måste skilja sig från MCP_API_KEY.');
+  let base;
+  try{base=new URL(process.env.PUBLIC_BASE_URL || '');}catch{fail('PUBLIC_BASE_URL','PUBLIC_BASE_URL saknas eller är ingen giltig adress.');}
+  if(base.username || base.password || base.search || base.hash || base.pathname!=='/') fail('PUBLIC_BASE_URL','PUBLIC_BASE_URL måste vara en origin utan sökväg.');
+  if(base.protocol!=='https:' && !(base.protocol==='http:' && ['localhost','127.0.0.1'].includes(base.hostname) && !process.env.VERCEL)) fail('PUBLIC_BASE_URL','PUBLIC_BASE_URL måste använda HTTPS på Vercel.');
   const driver=process.env.STORAGE_DRIVER || 'blob';
-  if(!['blob','local'].includes(driver) || (process.env.VERCEL && driver==='local')) throw new Error('Vercel kräver STORAGE_DRIVER=blob.');
-  if(driver==='blob' && !process.env.BLOB_READ_WRITE_TOKEN) throw new Error('BLOB_READ_WRITE_TOKEN saknas. Koppla ett privat Blob-lager.');
+  if(!['blob','local'].includes(driver)) fail('STORAGE_DRIVER','STORAGE_DRIVER måste vara blob eller local.');
+  if(process.env.VERCEL && driver==='local') fail('STORAGE_DRIVER','Vercel kräver STORAGE_DRIVER=blob.');
+  if(driver==='blob' && !process.env.BLOB_READ_WRITE_TOKEN) fail('BLOB_READ_WRITE_TOKEN','BLOB_READ_WRITE_TOKEN saknas. Koppla ett privat Blob-lager.');
   const ttl=Number(process.env.DOWNLOAD_TTL_SECONDS||3600);
-  if(!Number.isInteger(ttl)||ttl<60||ttl>86400) throw new Error('DOWNLOAD_TTL_SECONDS måste vara 60–86400.');
+  if(!Number.isInteger(ttl)||ttl<60||ttl>86400) fail('DOWNLOAD_TTL_SECONDS','DOWNLOAD_TTL_SECONDS måste vara ett heltal mellan 60 och 86400.');
   return {key,secret,base:base.origin,driver,ttl};
 }
 export function equalSecret(a,b) {

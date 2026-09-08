@@ -9,7 +9,7 @@ const app=express();
 app.disable('x-powered-by');
 app.use((req,res,next)=>{res.set({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});next();});
 app.get('/',(req,res)=>res.type('html').send('<!doctype html><html lang="sv"><meta charset="utf-8"><title>Landskrona rapportserver</title><body><h1>Landskrona rapportserver</h1><p>MCP-adress: <code>/api/mcp</code></p><p>Anslut med API-nyckel i Intric. Se projektets README för test och installation.</p></body></html>'));
-app.get('/api/health',(req,res)=>{try{config();res.json({status:'ok',templates:listTemplates().length});}catch{res.status(503).json({status:'configuration_required'});}});
+app.get('/api/health',(req,res)=>{try{config();res.json({status:'ok',templates:listTemplates().length});}catch(e){res.status(503).json({status:'configuration_required',variable:e.variable||null,message:e.variable?e.message:'Okänt konfigurationsfel.'});}});
 function auth(req,res,next) {
   let cfg;
   try{cfg=config();}catch{return res.status(503).json({error:'Serverkonfiguration saknas. Kontrollera miljövariablerna.'});}
