@@ -306,3 +306,23 @@ test('the letterhead logo sits behind the text in every template',()=>{
     assert.ok(doc.includes('svgBlip'),`${t.id}: vektorversionen ska vara kvar`);
   }
 });
+test('generation never alters any layout-critical part of the package',async()=>{
+  // Allt som styr utseendet ska komma oforandrat fran mallen. Bara brodtexten ar ny.
+  const layout=['word/styles.xml','word/numbering.xml','word/settings.xml','word/fontTable.xml',
+    'word/theme/theme1.xml','word/webSettings.xml','[Content_Types].xml'];
+  for(const t of listTemplates()){
+    const ut=new PizZip(generateReport({...fixture,report_type:t.id}).buffer);
+    const mall=new PizZip(await readFile(new URL(`../templates/${t.id}.docx`,import.meta.url)));
+    for(const del of layout){
+      if(!mall.file(del)) continue;
+      assert.deepEqual(ut.file(del).asUint8Array(),mall.file(del).asUint8Array(),`${t.id}: ${del} andrades`);
+    }
+    // Sidhuvud och sidfot bar brevhuvudet och sidnumreringen.
+    const hf=Object.keys(mall.files).filter(f=>/word\/(header|footer)\d*\.xml$/.test(f));
+    assert.ok(hf.length>0,`${t.id}: sidhuvud saknas`);
+    for(const f of hf) assert.deepEqual(ut.file(f).asUint8Array(),mall.file(f).asUint8Array(),`${t.id}: ${f} andrades`);
+    // Sidinstallningen: marginaler, sidstorlek och sidhuvudsreferenser.
+    const sect=z=>{const d=z.file('word/document.xml').asText();const i=d.lastIndexOf('<w:sectPr');return d.slice(i,d.indexOf('</w:sectPr>',i));};
+    assert.equal(sect(ut),sect(mall),`${t.id}: sidinstallningen andrades`);
+  }
+});
