@@ -50,13 +50,24 @@ console.log(`SVG hämtad: ${svg.length} bytes, sha1 ${createHash('sha1').update(
 for (const template of catalog) {
   const path = new URL(`../templates/${template.file}`, import.meta.url);
   const zip = new PizZip(readFileSync(path));
-  const doc = zip.file('word/document.xml').asText();
+  let doc = zip.file('word/document.xml').asText();
+  const atgardat = [];
 
-  if (doc.includes('svgBlip')) { console.log(`${template.id.padEnd(22)} har redan SVG, lämnas orörd`); continue; }
-  if (!doc.includes('<a:extLst/>')) { console.log(`${template.id.padEnd(22)} ingen tom extLst att fylla, hoppas över`); continue; }
+  // Logotypen är ett flytande objekt. I originalen ligger den bakom textlagret; i mallarna
+  // hamnade den framför, så den lade sig över innehållet i stället för under.
+  if (/<wp:anchor[^>]*behindDoc="0"/.test(doc)) {
+    doc = doc.replace(/(<wp:anchor[^>]*?)behindDoc="0"/, '$1behindDoc="1"');
+    atgardat.push('flyttad bakom texten');
+  }
 
-  zip.file('word/media/image2.svg', svg);
-  zip.file('word/document.xml', doc.replace('<a:extLst/>', extLst));
+  if (!doc.includes('svgBlip') && doc.includes('<a:extLst/>')) {
+    zip.file('word/media/image2.svg', svg);
+    doc = doc.replace('<a:extLst/>', extLst);
+    atgardat.push('SVG återställd');
+  }
+
+  zip.file('word/document.xml', doc);
+  if (!atgardat.length) { console.log(`${template.id.padEnd(22)} redan korrekt`); continue; }
 
   const relsPath = 'word/_rels/document.xml.rels';
   const rels = zip.file(relsPath).asText();
@@ -74,5 +85,5 @@ for (const template of catalog) {
   }
 
   writeFileSync(path, zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
-  console.log(`${template.id.padEnd(22)} SVG återställd`);
+  console.log(`${template.id.padEnd(22)} ${atgardat.join(', ')}`);
 }

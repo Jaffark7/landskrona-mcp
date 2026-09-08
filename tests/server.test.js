@@ -298,3 +298,11 @@ test('markdown bold becomes real bold and never leaks asterisks',()=>{
   const kvarTxt=new PizZip(kvar.buffer).file('word/document.xml').asText();
   assert.ok(kvarTxt.includes('5 * 3 meter'));
 });
+test('the letterhead logo sits behind the text in every template',()=>{
+  for(const t of listTemplates()){
+    const doc=new PizZip(generateReport({...fixture,report_type:t.id}).buffer).file('word/document.xml').asText();
+    const anchor=doc.slice(doc.indexOf('<wp:anchor'),doc.indexOf('<wp:extent'));
+    assert.match(anchor,/behindDoc="1"/,`${t.id}: logotypen ska ligga bakom texten som i originalet`);
+    assert.ok(doc.includes('svgBlip'),`${t.id}: vektorversionen ska vara kvar`);
+  }
+});
