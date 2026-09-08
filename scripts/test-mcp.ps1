@@ -35,6 +35,19 @@ $payload = @{
   }
 } | ConvertTo-Json -Depth 10
 
+# Kontrollerar forst vilket schema servern faktiskt exponerar. Ar images inte med har,
+# ar servern inte omdeployad - och da hjalper det inte att uppdatera prompten i Intric.
+$listBody = @{ jsonrpc = '2.0'; id = 0; method = 'tools/list'; params = @{} } | ConvertTo-Json -Depth 5
+try {
+  $listed = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $listBody -UseBasicParsing
+  $tool = ($listed.Content | ConvertFrom-Json).result.tools | Where-Object { $_.name -eq 'create_inspection_report' }
+  $fields = $tool.inputSchema.properties.PSObject.Properties.Name
+  Write-Host "`nServerns falt: $($fields -join ', ')" -ForegroundColor DarkGray
+  if ($fields -contains 'images') { Write-Host "Bildstod ar utrullat pa servern." -ForegroundColor Green }
+  else { Write-Host "Servern saknar annu faltet images - vanta pa Vercels bygge." -ForegroundColor Yellow }
+}
+catch { Write-Host "Kunde inte lasa verktygsschemat: $($_.Exception.Message)" -ForegroundColor Yellow }
+
 Write-Host "`nAnropar $url ..." -ForegroundColor Cyan
 try {
   $res = Invoke-WebRequest -Uri $url -Method Post -Headers $headers -Body $payload -UseBasicParsing
