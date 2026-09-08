@@ -180,3 +180,17 @@ test('health reports a malformed ALLOWED_ORIGINS',async()=>{
   }
   assert.equal((await fetch(`${base}/api/health`)).status,200);
 });
+test('empty food_summary is ignored instead of rejected for non-food templates',()=>{
+  const tom={passed:'',follow_up:'',deviations:''};
+  const result=generateReport({...fixture,report_type:'avfall',food_summary:tom});
+  assert.equal(result.template_id,'avfall');
+  assert.ok(result.warnings.some(w=>/food_summary/i.test(w)),'ska varna om att faltet ignorerades');
+  assert.ok(result.buffer.length>0);
+  assert.throws(()=>generateReport({...fixture,report_type:'avfall',food_summary:{passed:'Kylrum kontrollerat',follow_up:'',deviations:''}}),
+    /livsmedel/,'ifyllt food_summary mot fel mall ska fortfarande avvisas');
+  const mat=generateReport({...fixture,report_type:'livsmedel',food_summary:{passed:'A',follow_up:'B',deviations:'C'}});
+  assert.equal(mat.template_id,'livsmedel');
+  assert.equal(mat.warnings.filter(w=>/food_summary/i.test(w)).length,0);
+  const tomMat=generateReport({...fixture,report_type:'livsmedel',food_summary:tom});
+  assert.equal(tomMat.template_id,'livsmedel');
+});

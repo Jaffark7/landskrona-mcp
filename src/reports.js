@@ -20,15 +20,17 @@ export const reportShape = {
     passed: text(2000),
     follow_up: text(2000),
     deviations: text(2000)
-  }).strict().optional().describe('Endast livsmedel: text till originalmallens tabell med Kontrollerat utan avvikelser, Uppföljning av tidigare avvikelser och Avvikelser. Skicka endast verifierade uppgifter. Tom sträng lämnar respektive fält tomt.'),
+  }).strict().optional().describe('Endast livsmedel: text till originalmallens tabell med Kontrollerat utan avvikelser, Uppföljning av tidigare avvikelser och Avvikelser. Utelämna fältet helt för alla andra rapporttyper. Skicka endast verifierade uppgifter. Tom sträng lämnar respektive fält tomt i livsmedelsmallen.'),
   recipient: text(1200).optional().describe('Mottagare och eventuell adress, med radbrytningar. Högst 8 rader.'),
   metadata: z.array(z.object({ label: text(80).min(1), value: text(800).min(1) }).strict()).max(20).optional().describe('Uppgifter under titeln, exempelvis Verksamhet, Org. nr, Fastighet, Inspektionsdatum och Närvarande.')
 };
+// Ett food_summary med enbart tomma stranger betyder "inte tillämpligt", inte ett fel.
+const foodFilled = f => Boolean(f) && Object.values(f).some(v => v && v.trim());
 export const reportSchema = z.object(reportShape).strict().superRefine((v, ctx) => {
   if (Boolean(v.report_text) === Boolean(v.sections?.length)) ctx.addIssue({code:'custom', message:'Skicka rapportinnehåll i exakt ett av report_text eller sections.'});
   if (JSON.stringify(v).length > 150000) ctx.addIssue({code:'custom',message:'Rapporten är för stor. Högst 150 000 tecken totalt.'});
   if ((v.recipient?.split('\n').length || 0) > 8) ctx.addIssue({code:'custom',message:'Mottagarblocket får innehålla högst 8 rader.'});
-  if (v.food_summary && selectTemplate(v.report_type).template.id!=='livsmedel') ctx.addIssue({code:'custom',message:'food_summary kan bara användas med rapporttypen livsmedel.'});
+  if (foodFilled(v.food_summary) && selectTemplate(v.report_type).template.id!=='livsmedel') ctx.addIssue({code:'custom',message:'food_summary innehåller uppgifter men rapporttypen är inte livsmedel. Ta bort fältet eller byt rapporttyp.'});
 });
 const normalize = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 const aliases = new Map();
@@ -65,7 +67,8 @@ export function generateReport(input) {
   const missing=['report_date','case_number','inspector','recipient'].filter(k=>!data[k]);
   if(missing.length) warnings.push(`Följande uppgifter saknas och lämnas tomma: ${missing.join(', ')}.`);
   let xml=(data.metadata || []).map(m=>paragraph(template,'metadata',`${m.label}: ${m.value}`)).join('');
-  if(data.food_summary) {
+  if(data.food_summary && template.id!=='livsmedel') warnings.push('food_summary ignorerades: fältet är tomt och rapporttypen är inte livsmedel.');
+  if(data.food_summary && template.id==='livsmedel') {
     xml+=template.prototypes.food_summary.replace(/__PASSED__|__FOLLOWUP__|__DEVIATIONS__/g,slot=>escapeXml(data.food_summary[{__PASSED__:'passed',__FOLLOWUP__:'follow_up',__DEVIATIONS__:'deviations'}[slot]]).replace(/\n/g,'</w:t><w:br/><w:t xml:space="preserve">'));
   }
   if(data.sections) xml+=data.sections.map(s=>(s.heading?paragraph(template,'heading',s.heading):'')+bodyText(template,s.text)).join('');
